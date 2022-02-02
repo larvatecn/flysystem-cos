@@ -1,5 +1,5 @@
 {
-  "name": "larva/flysystem-cos-v3",
+  "name": "larva/flysystem-cos",
   "description": "This is a Flysystem adapter for the Tencent COS.",
   "keywords": [ "flysystem", "tencent", "cos", "larva" ],
   "type": "library",
