@@ -14,7 +14,12 @@
   },
   "autoload": {
     "psr-4": {
-      "Larva\\Flysystem\\TencentCos\\": "src"
+      "Larva\\Flysystem\\Tencent\\": "src"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Larva\\Flysystem\\Tencent\\Tests\\": "tests"
     }
   },
   "extra": {

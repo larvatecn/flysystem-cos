@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Larva\Flysystem\TencentCos;
+namespace Larva\Flysystem\Tencent;
 
 use League\Flysystem\Adapter\AbstractAdapter;
 use League\Flysystem\Adapter\CanOverwriteFiles;
@@ -268,6 +268,7 @@ class CosAdapter extends AbstractAdapter implements CanOverwriteFiles
             $result['size'] = $options['length'];
             return $result;
         } catch (ServiceResponseException $e) {
+            print_r($e->getMessage());
             return false;
         }
     }
