@@ -5,8 +5,9 @@
   "type": "library",
   "license": "MIT",
   "require": {
-    "php": "^7.4 | ^8.0",
-    "league/flysystem": "^1.0.0",
+    "php": "^8.0.2",
+    "league/flysystem": "^2.0.0 || ^3.0.0",
+    "league/mime-type-detection": "^1.0.0",
     "qcloud/cos-sdk-v5": "^2.5"
   },
   "require-dev": {

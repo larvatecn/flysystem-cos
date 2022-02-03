@@ -8,8 +8,9 @@
 namespace Larva\Flysystem\Tencent\Tests;
 
 use Larva\Flysystem\Tencent\CosAdapter;
-use League\Flysystem\AdapterInterface;
+use Larva\Flysystem\Tencent\PortableVisibilityConverter;
 use League\Flysystem\Config;
+use League\Flysystem\FilesystemAdapter;
 use PHPUnit\Framework\TestCase;
 use Qcloud\Cos\Client;
 
@@ -43,9 +44,10 @@ class AdapterTest extends TestCase
             'prefix' => getenv('COS_PREFIX'),//前缀
         ];
         $client = new Client($config);
-        $adapter = new CosAdapter($client, $config['bucket'], $config);
+        $adapter = new CosAdapter($client, $config['bucket'], '');
         $options = [
             'machineId' => PHP_OS . PHP_VERSION,
+            'bucket' => getenv('COS_BUCKET'),
         ];
         return [
             [$adapter, $config, $options],
@@ -55,119 +57,89 @@ class AdapterTest extends TestCase
     /**
      * @dataProvider Provider
      */
-    public function testWrite(AdapterInterface $adapter, $config, $options)
+    public function testCreateDirectory(FilesystemAdapter $adapter, $config, $options)
     {
-        $this->assertTrue((bool)$adapter->write(
-            "foo/{$options['machineId']}/foo.md",
-            'content',
-            new Config()
-        ));
+        $path = "bar/{$options['machineId']}";
+        $adapter->createDirectory(
+            $path, new Config()
+        );
+        $this->assertTrue($adapter->directoryExists($path));
     }
 
     /**
      * @dataProvider Provider
      */
-    public function testWriteStream(AdapterInterface $adapter, $config, $options)
+    public function testWrite(FilesystemAdapter $adapter, $config, $options)
+    {
+        $path = "foo/{$options['machineId']}/foo.md";
+        $adapter->write($path, 'content', new Config());
+        $this->assertTrue($adapter->fileExists($path));
+    }
+
+    /**
+     * @dataProvider Provider
+     */
+    public function testRead(FilesystemAdapter $adapter, $config, $options)
+    {
+        $path = "foo/{$options['machineId']}/foo.md";
+        $body = $adapter->read($path);
+        $this->assertEquals('content', $body);
+    }
+
+    /**
+     * @dataProvider Provider
+     */
+    public function testWriteStream(FilesystemAdapter $adapter, $config, $options)
     {
         $temp = tmpfile();
         fwrite($temp, 'writing to tempfile');
-        $this->assertTrue((bool)$adapter->writeStream(
-            "foo/{$options['machineId']}/bar.md",
-            $temp,
-            new Config()
-        ));
+        $path = "foo/{$options['machineId']}/bar.md";
+        $adapter->writeStream($path, $temp, new Config());
+        $this->assertTrue($adapter->fileExists($path));
         fclose($temp);
     }
 
     /**
      * @dataProvider Provider
      */
-    public function testUpdate(AdapterInterface $adapter, $config, $options)
+    public function testMovingWithUpdatedMetadata(FilesystemAdapter $adapter, $config, $options)
     {
-        $this->assertTrue((bool)$adapter->update(
-            "foo/{$options['machineId']}/bar.md",
-            uniqid(),
-            new Config()
-        ));
+        $path = "foo/{$options['machineId']}/source.txt";
+        $adapter->write($path, 'contents to be moved', new Config(['ContentType' => 'text/plain']));
+        $mimeTypeSource = $adapter->mimeType($path)->mimeType();
+        $this->assertSame('text/plain', $mimeTypeSource);
     }
 
     /**
      * @dataProvider Provider
      */
-    public function testUpdateStream(AdapterInterface $adapter, $config, $options)
+    public function testAclViaOptions(FilesystemAdapter $adapter, $config, $options)
     {
-        $temp = tmpfile();
-        fwrite($temp, 'writing to tempfile');
-        $this->assertTrue((bool)$adapter->updateStream(
-            "foo/{$options['machineId']}/bar.md",
-            $temp,
-            new Config()
-        ));
-        fclose($temp);
+        $path = "foo/{$options['machineId']}/v.md";
+        $adapter->write($path, 'contents', new Config(['ACL' => 'bucket-owner-full-control']));
+        $response = $adapter->client()->GetObjectAcl(['Bucket' => $options['bucket'], 'Key' => $path]);
+        $permission = $response['Grants'][0]['Grant']['Permission'];
+        $this->assertEquals('FULL_CONTROL', $permission);
+        $adapter->delete($path);
     }
 
     /**
      * @dataProvider Provider
      */
-    public function testRename(AdapterInterface $adapter, $config, $options)
+    public function testCopy(FilesystemAdapter $adapter, $config, $options)
     {
-        $this->assertTrue($adapter->rename(
+        $adapter->copy(
             "foo/{$options['machineId']}/foo.md",
-            "/foo/{$options['machineId']}/rename.md"
-        ));
+            "/foo/{$options['machineId']}/copy.md",
+            new Config()
+        );
+        $this->assertTrue($adapter->fileExists("/foo/{$options['machineId']}/copy.md"));
     }
 
     /**
      * @dataProvider Provider
      */
-    public function testCopy(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertTrue($adapter->copy(
-            "foo/{$options['machineId']}/bar.md",
-            "/foo/{$options['machineId']}/copy.md"
-        ));
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testDelete(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertTrue($adapter->delete("foo/{$options['machineId']}/rename.md"));
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testCreateDir(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertTrue((bool)$adapter->createDir(
-            "bar/{$options['machineId']}", new Config()
-        ));
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testSetVisibility(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertArrayHasKey('size', $adapter->setVisibility(
-            "foo/{$options['machineId']}/copy.md", 'private'
-        ));
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testHas(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertTrue($adapter->has("foo/{$options['machineId']}/bar.md"));
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testListContents(AdapterInterface $adapter, $config, $options)
+    public function testListContents(FilesystemAdapter $adapter, $config, $options)
     {
         $this->assertArrayHasKey(
             0,
@@ -178,63 +150,21 @@ class AdapterTest extends TestCase
     /**
      * @dataProvider Provider
      */
-    public function testGetMetadata(AdapterInterface $adapter, $config, $options)
+    public function testDelete(FilesystemAdapter $adapter, $config, $options)
     {
-        $this->assertArrayHasKey(
-            'size',
-            $adapter->getMetadata("foo/{$options['machineId']}/bar.md")
-        );
+        $path = "foo/{$options['machineId']}/foo.md";
+        $this->assertTrue($adapter->fileExists($path));
+        $adapter->delete($path);
+        $this->assertFalse($adapter->fileExists($path));
     }
 
     /**
      * @dataProvider Provider
      */
-    public function testGetSize(AdapterInterface $adapter, $config, $options)
+    public function testDeleteDirectory(FilesystemAdapter $adapter, $config, $options)
     {
-        $this->assertArrayHasKey(
-            'size',
-            $adapter->getSize("foo/{$options['machineId']}/bar.md")
-        );
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testGetMimetype(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertNotSame(
-            ['mimetype' => ''],
-            $adapter->getMimetype("foo/{$options['machineId']}/bar.md")
-        );
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testGetTimestamp(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertNotSame(
-            ['timestamp' => 0],
-            $adapter->getTimestamp("foo/{$options['machineId']}/bar.md")
-        );
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testGetVisibility(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertSame(
-            ['visibility' => 'private'],
-            $adapter->getVisibility("foo/{$options['machineId']}/copy.md")
-        );
-    }
-
-    /**
-     * @dataProvider Provider
-     */
-    public function testDeleteDir(AdapterInterface $adapter, $config, $options)
-    {
-        $this->assertTrue($adapter->deleteDir("bar/{$options['machineId']}"));
+        $path = "bar/{$options['machineId']}";
+        $adapter->deleteDirectory($path);
+        $this->assertFalse($adapter->directoryExists($path));
     }
 }
