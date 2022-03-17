@@ -29,6 +29,7 @@ use League\Flysystem\UnixVisibility\VisibilityConverter;
 use League\MimeTypeDetection\FinfoMimeTypeDetector;
 use League\MimeTypeDetection\MimeTypeDetector;
 use Qcloud\Cos\Client;
+use Qcloud\Cos\Exception\ServiceResponseException;
 use Throwable;
 
 /**
@@ -86,15 +87,29 @@ class TencentCOSAdapter implements FilesystemAdapter
         $this->options = $options;
     }
 
-
+    /**
+     * 判断文件是否存在
+     * @param string $path
+     * @return bool
+     * @throws UnableToCheckExistence
+     */
     public function fileExists(string $path): bool
     {
-        // TODO: Implement fileExists() method.
+        try {
+            return $this->client->doesObjectExist($this->bucket, $this->prefixer->prefixPath($path), $this->options);
+        } catch (Throwable $exception) {
+            throw UnableToCheckExistence::forLocation($path, $exception);
+        }
     }
 
+    /**
+     * 判断文件夹是否存在
+     * @param string $path
+     * @return bool
+     */
     public function directoryExists(string $path): bool
     {
-        // TODO: Implement directoryExists() method.
+        // TODO: Implement write() method.
     }
 
     public function write(string $path, string $contents, Config $config): void
@@ -117,14 +132,38 @@ class TencentCOSAdapter implements FilesystemAdapter
         // TODO: Implement readStream() method.
     }
 
+    /**
+     * 删除对象
+     * @param string $path
+     */
     public function delete(string $path): void
     {
-        // TODO: Implement delete() method.
+        $prefixedPath = $this->prefixer->prefixPath($path);
+        try {
+            $this->client->deleteObject([
+                'Bucket' => $this->bucket,
+                'Key' => $prefixedPath,
+            ]);
+        } catch (ServiceResponseException $exception) {
+            throw UnableToDeleteFile::atLocation($path, '', $exception);
+        }
     }
 
+    /**
+     * 删除目录
+     * @param string $path
+     */
     public function deleteDirectory(string $path): void
     {
-        // TODO: Implement deleteDirectory() method.
+        try {
+            $prefix = $this->prefixer->prefixDirectoryPath($path);
+            $this->client->deleteObject([
+                'Bucket' => $this->bucket,
+                'Key' => $prefix,
+            ]);
+        } catch (ServiceResponseException $exception) {
+            throw UnableToDeleteDirectory::atLocation($path, '', $exception);
+        }
     }
 
     public function createDirectory(string $path, Config $config): void
@@ -142,19 +181,46 @@ class TencentCOSAdapter implements FilesystemAdapter
         // TODO: Implement visibility() method.
     }
 
+    /**
+     * 获取内容类型
+     * @param string $path
+     * @return FileAttributes
+     */
     public function mimeType(string $path): FileAttributes
     {
-        // TODO: Implement mimeType() method.
+        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_MIME_TYPE);
+        if ($attributes->mimeType() === null) {
+            throw UnableToRetrieveMetadata::mimeType($path);
+        }
+        return $attributes;
     }
 
+    /**
+     * 获取最后更改
+     * @param string $path
+     * @return FileAttributes
+     */
     public function lastModified(string $path): FileAttributes
     {
-        // TODO: Implement lastModified() method.
+        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_LAST_MODIFIED);
+        if ($attributes->lastModified() === null) {
+            throw UnableToRetrieveMetadata::lastModified($path);
+        }
+        return $attributes;
     }
 
+    /**
+     * 获取文件大小
+     * @param string $path
+     * @return FileAttributes
+     */
     public function fileSize(string $path): FileAttributes
     {
-        // TODO: Implement fileSize() method.
+        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_FILE_SIZE);
+        if ($attributes->fileSize() === null) {
+            throw UnableToRetrieveMetadata::fileSize($path);
+        }
+        return $attributes;
     }
 
     public function listContents(string $path, bool $deep): iterable
@@ -162,9 +228,20 @@ class TencentCOSAdapter implements FilesystemAdapter
         // TODO: Implement listContents() method.
     }
 
+    /**
+     * 移动对象到新位置
+     * @param string $source
+     * @param string $destination
+     * @param Config $config
+     */
     public function move(string $source, string $destination, Config $config): void
     {
-        // TODO: Implement move() method.
+        try {
+            $this->copy($source, $destination, $config);
+            $this->delete($source);
+        } catch (FilesystemOperationFailed $exception) {
+            throw UnableToMoveFile::fromLocationTo($source, $destination, $exception);
+        }
     }
 
     public function copy(string $source, string $destination, Config $config): void
