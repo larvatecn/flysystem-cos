@@ -28,6 +28,7 @@ use League\MimeTypeDetection\MimeTypeDetector;
 use Qcloud\Cos\Client;
 use Qcloud\Cos\Exception\ServiceResponseException;
 use Throwable;
+use Generator;
 
 /**
  * 腾讯云COS适配器
@@ -258,10 +259,12 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function delete(string $path): void
     {
-        $prefixedPath = $this->prefixer->prefixPath($path);
+        $arguments = ['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)];
+        $command = $this->client->getCommand('DeleteObject', $arguments);
+
         try {
-            $this->client->deleteObject(['Bucket' => $this->bucket, 'Key' => $prefixedPath,]);
-        } catch (ServiceResponseException $exception) {
+            $this->client->execute($command);
+        } catch (Throwable $exception) {
             throw UnableToDeleteFile::atLocation($path, '', $exception);
         }
     }
@@ -290,12 +293,8 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function createDirectory(string $path, Config $config): void
     {
-        $dirname = $this->prefixer->prefixDirectoryPath($path);
-        try {
-            $this->client->putObject(['Bucket' => $this->bucket, 'Key' => $dirname, 'Body' => '',]);
-        } catch (ServiceResponseException $exception) {
-            UnableToCreateDirectory::atLocation($path, $exception->getMessage());
-        }
+        $config = $config->withDefaults(['visibility' => $this->visibility->defaultForDirectories()]);
+        $this->upload(rtrim($path, '/') . '/', '', $config);
     }
 
     /**
@@ -306,7 +305,17 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function setVisibility(string $path, string $visibility): void
     {
-        // TODO: Implement setVisibility() method.
+        $arguments = [
+            'Bucket' => $this->bucket,
+            'Key' => $this->prefixer->prefixPath($path),
+            'ACL' => $this->visibility->visibilityToAcl($visibility),
+        ];
+        $command = $this->client->getCommand('PutObjectAcl', $arguments);
+        try {
+            $this->client->execute($command);
+        } catch (Throwable $exception) {
+            throw UnableToSetVisibility::atLocation($path, '', $exception);
+        }
     }
 
     /**
@@ -438,7 +447,29 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function listContents(string $path, bool $deep): iterable
     {
-        // TODO: Implement listContents() method.
+        $prefix = trim($this->prefixer->prefixPath($path), '/');
+        $prefix = empty($prefix) ? '' : $prefix . '/';
+        $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix];
+
+        if ($deep === false) {
+            $options['Delimiter'] = '/';
+        }
+
+        $listing = $this->retrievePaginatedListing($options);
+
+        foreach ($listing as $item) {
+            yield $this->mapObjectMetadata($item);
+        }
+    }
+
+    private function retrievePaginatedListing(array $options): Generator
+    {
+        $resultPaginator = $this->client->getPaginator('ListObjects', $options + $this->options);
+
+        foreach ($resultPaginator as $result) {
+            yield from ($result->get('CommonPrefixes') ?: []);
+            yield from ($result->get('Contents') ?: []);
+        }
     }
 
     /**
