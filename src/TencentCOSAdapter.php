@@ -34,6 +34,14 @@ use Throwable;
 class TencentCOSAdapter implements FilesystemAdapter
 {
     /**
+     * 扩展 MetaData 字段
+     * @var string[]
+     */
+    private const EXTRA_METADATA_FIELDS = [
+
+    ];
+
+    /**
      * @var Client
      */
     private Client $client;
@@ -117,7 +125,7 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function write(string $path, string $contents, Config $config): void
     {
-        // TODO: Implement write() method.
+        $this->upload($path, $contents, $config);
     }
 
     /**
@@ -130,7 +138,7 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function writeStream(string $path, $contents, Config $config): void
     {
-        // TODO: Implement writeStream() method.
+        $this->upload($path, \stream_get_contents($contents), $config);
     }
 
     /**
@@ -227,6 +235,67 @@ class TencentCOSAdapter implements FilesystemAdapter
     public function visibility(string $path): FileAttributes
     {
         // TODO: Implement visibility() method.
+    }
+
+    /**
+     * 获取文件 MetaData
+     * @param string $path
+     * @param string $type
+     * @return FileAttributes|null
+     */
+    private function fetchFileMetadata(string $path, string $type): ?FileAttributes
+    {
+        try {
+            $meta = $this->client->headObject([
+                'Bucket' => $this->bucket,
+                'Key' => $this->prefixer->prefixPath($path),
+            ]);
+        } catch (ServiceResponseException $exception) {
+            throw UnableToRetrieveMetadata::create($path, $type, '', $exception);
+        }
+        $attributes = $this->mapObjectMetadata($meta, $path);
+        if (!$attributes instanceof FileAttributes) {
+            throw UnableToRetrieveMetadata::create($path, $type, '');
+        }
+        return $attributes;
+    }
+
+    /**
+     * 映射Meta
+     * @param array $metadata
+     * @param string|null $path
+     * @return StorageAttributes
+     */
+    private function mapObjectMetadata(array $metadata, string $path = null): StorageAttributes
+    {
+        if ($path === null) {
+            $path = $this->prefixer->stripPrefix($metadata['Key'] ?? $metadata['Prefix']);
+        }
+        if (str_ends_with($path, '/')) {
+            return new DirectoryAttributes(rtrim($path, '/'));
+        }
+        $mimetype = $metadata['ContentType'] ?? null;
+        $fileSize = $metadata['ContentLength'] ?? null;
+        $fileSize = $fileSize === null ? null : (int)$fileSize;
+        $dateTime = $metadata['LastModified'] ?? null;
+        $lastModified = $dateTime ? strtotime($dateTime) : null;
+        return new FileAttributes($path, $fileSize, null, $lastModified, $mimetype, $this->extractExtraMetadata($metadata));
+    }
+
+    /**
+     * 导出扩展 Meta Data
+     * @param array $metadata
+     * @return array
+     */
+    private function extractExtraMetadata(array $metadata): array
+    {
+        $extracted = [];
+        foreach (static::EXTRA_METADATA_FIELDS as $field) {
+            if (isset($metadata[$field]) && $metadata[$field] !== '') {
+                $extracted[$field] = $metadata[$field];
+            }
+        }
+        return $extracted;
     }
 
     /**
