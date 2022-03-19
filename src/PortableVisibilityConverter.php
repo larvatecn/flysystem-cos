@@ -6,13 +6,14 @@ use League\Flysystem\Visibility;
 
 class PortableVisibilityConverter implements VisibilityConverter
 {
+    private const PUBLIC_GRANTS_PERMISSION = 'READ';
     private const PUBLIC_ACL = 'public-read';
     private const PRIVATE_ACL = 'private';
 
     /**
      * @var string
      */
-    private string $defaultForDirectories;
+    private $defaultForDirectories;
 
     public function __construct(string $defaultForDirectories = Visibility::PUBLIC)
     {
@@ -28,13 +29,16 @@ class PortableVisibilityConverter implements VisibilityConverter
         return self::PRIVATE_ACL;
     }
 
-    public function aclToVisibility(string $acl): string
+    public function aclToVisibility(array $grants): string
     {
-        if ($acl == 'default') {
-            $this->defaultForDirectories();
-        } elseif ($acl === self::PUBLIC_ACL) {
-            return Visibility::PUBLIC;
+        foreach ($grants as $grant) {
+            $permission = $grant['Permission'] ?? null;
+
+            if ($permission === self::PUBLIC_GRANTS_PERMISSION) {
+                return Visibility::PUBLIC;
+            }
         }
+
         return Visibility::PRIVATE;
     }
 

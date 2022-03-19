@@ -11,6 +11,7 @@ use League\Flysystem\FilesystemOperationFailed;
 use League\Flysystem\InvalidVisibilityProvided;
 use League\Flysystem\PathPrefixer;
 use League\Flysystem\StorageAttributes;
+use League\Flysystem\UnableToCheckDirectoryExistence;
 use League\Flysystem\UnableToCheckExistence;
 use League\Flysystem\UnableToCopyFile;
 use League\Flysystem\UnableToCreateDirectory;
@@ -34,11 +35,18 @@ use Throwable;
 class TencentCOSAdapter implements FilesystemAdapter
 {
     /**
+     * @var string[]
+     */
+    public const AVAILABLE_OPTIONS = [
+
+    ];
+
+    /**
      * 扩展 MetaData 字段
      * @var string[]
      */
     private const EXTRA_METADATA_FIELDS = [
-
+        'ETag'
     ];
 
     /**
@@ -114,7 +122,15 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function directoryExists(string $path): bool
     {
-        // TODO: Implement directoryExists() method.
+        try {
+            $prefix = $this->prefixer->prefixDirectoryPath($path);
+            $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix, 'Delimiter' => '/'];
+            $command = $this->client->getCommand('ListObjects', $options);
+
+            return $this->client->execute($command)->hasKey('Contents');
+        } catch (Throwable $exception) {
+            throw UnableToCheckDirectoryExistence::forLocation($path, $exception);
+        }
     }
 
     /**
@@ -126,6 +142,58 @@ class TencentCOSAdapter implements FilesystemAdapter
     public function write(string $path, string $contents, Config $config): void
     {
         $this->upload($path, $contents, $config);
+    }
+
+    /**
+     * @param string $path
+     * @param string|resource $body
+     * @param Config $config
+     */
+    private function upload(string $path, $body, Config $config): void
+    {
+        $object = $this->prefixer->prefixPath($path);
+        $options = $this->createOptionsFromConfig($config);
+        $options['ACL'] = $this->determineAcl($config);
+        $shouldDetermineMimetype = $body !== '' && !array_key_exists('ContentType', $options);
+        if ($shouldDetermineMimetype && $mimeType = $this->mimeTypeDetector->detectMimeType($object, $body)) {
+            $options['ContentType'] = $mimeType;
+        }
+        try {
+            $this->client->upload($this->bucket, $object, $body, $options);
+            //$this->client->putObject($this->bucket, $object, $body, $options);
+        } catch (Throwable $exception) {
+            throw UnableToWriteFile::atLocation($path, '', $exception);
+        }
+    }
+
+    /**
+     * 转换ACL
+     * @param Config $config
+     * @return string
+     */
+    private function determineAcl(Config $config): string
+    {
+        $visibility = (string) $config->get(Config::OPTION_VISIBILITY, Visibility::PRIVATE);
+
+        return $this->visibility->visibilityToAcl($visibility);
+    }
+
+    /**
+     * 从配置创建参数
+     * @param Config $config
+     * @return array
+     */
+    private function createOptionsFromConfig(Config $config): array
+    {
+        $options = [];
+        foreach (static::AVAILABLE_OPTIONS as $option) {
+            $value = $config->get($option, '__NOT_SET__');
+
+            if ($value !== '__NOT_SET__') {
+                $options[$option] = $value;
+            }
+        }
+        return $options + $this->options;
     }
 
     /**
@@ -190,7 +258,12 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function delete(string $path): void
     {
-        // TODO: Implement delete() method.
+        $prefixedPath = $this->prefixer->prefixPath($path);
+        try {
+            $this->client->deleteObject(['Bucket' => $this->bucket, 'Key' => $prefixedPath,]);
+        } catch (ServiceResponseException $exception) {
+            throw UnableToDeleteFile::atLocation($path, '', $exception);
+        }
     }
 
     /**
@@ -201,7 +274,12 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function deleteDirectory(string $path): void
     {
-        // TODO: Implement deleteDirectory() method.
+        try {
+            $dirname = $this->prefixer->prefixDirectoryPath($path);
+            $this->client->deleteObject(['Bucket' => $this->bucket, 'Key' => $dirname,]);
+        } catch (ServiceResponseException $exception) {
+            throw UnableToDeleteDirectory::atLocation($path, '', $exception);
+        }
     }
 
     /**
@@ -212,7 +290,12 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function createDirectory(string $path, Config $config): void
     {
-        // TODO: Implement createDirectory() method.
+        $dirname = $this->prefixer->prefixDirectoryPath($path);
+        try {
+            $this->client->putObject(['Bucket' => $this->bucket, 'Key' => $dirname, 'Body' => '',]);
+        } catch (ServiceResponseException $exception) {
+            UnableToCreateDirectory::atLocation($path, $exception->getMessage());
+        }
     }
 
     /**
@@ -234,7 +317,15 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function visibility(string $path): FileAttributes
     {
-        // TODO: Implement visibility() method.
+        $arguments = ['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)];
+        $command = $this->client->getCommand('GetObjectAcl', $arguments);
+        try {
+            $result = $this->client->execute($command);
+        } catch (Throwable $exception) {
+            throw UnableToRetrieveMetadata::visibility($path, '', $exception);
+        }
+        $visibility = $this->visibility->aclToVisibility((array) $result->Grants);
+        return new FileAttributes($path, null, $visibility);
     }
 
     /**
@@ -246,14 +337,11 @@ class TencentCOSAdapter implements FilesystemAdapter
     private function fetchFileMetadata(string $path, string $type): ?FileAttributes
     {
         try {
-            $meta = $this->client->headObject([
-                'Bucket' => $this->bucket,
-                'Key' => $this->prefixer->prefixPath($path),
-            ]);
+            $meta = $this->client->headObject(['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)]);
         } catch (ServiceResponseException $exception) {
             throw UnableToRetrieveMetadata::create($path, $type, '', $exception);
         }
-        $attributes = $this->mapObjectMetadata($meta, $path);
+        $attributes = $this->mapObjectMetadata($meta->toArray(), $path);
         if (!$attributes instanceof FileAttributes) {
             throw UnableToRetrieveMetadata::create($path, $type, '');
         }
@@ -269,7 +357,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     private function mapObjectMetadata(array $metadata, string $path = null): StorageAttributes
     {
         if ($path === null) {
-            $path = $this->prefixer->stripPrefix($metadata['Key'] ?? $metadata['Prefix']);
+            $path = $this->prefixer->stripPrefix($metadata['Key']);
         }
         if (str_ends_with($path, '/')) {
             return new DirectoryAttributes(rtrim($path, '/'));
