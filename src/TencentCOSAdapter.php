@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Larva\Flysystem\Tencent;
 
 use League\Flysystem\Config;
@@ -13,9 +11,7 @@ use League\Flysystem\FilesystemOperationFailed;
 use League\Flysystem\InvalidVisibilityProvided;
 use League\Flysystem\PathPrefixer;
 use League\Flysystem\StorageAttributes;
-use League\Flysystem\UnableToCheckDirectoryExistence;
 use League\Flysystem\UnableToCheckExistence;
-use League\Flysystem\UnableToCheckFileExistence;
 use League\Flysystem\UnableToCopyFile;
 use League\Flysystem\UnableToCreateDirectory;
 use League\Flysystem\UnableToDeleteDirectory;
@@ -25,7 +21,7 @@ use League\Flysystem\UnableToReadFile;
 use League\Flysystem\UnableToRetrieveMetadata;
 use League\Flysystem\UnableToSetVisibility;
 use League\Flysystem\UnableToWriteFile;
-use League\Flysystem\UnixVisibility\VisibilityConverter;
+use League\Flysystem\Visibility;
 use League\MimeTypeDetection\FinfoMimeTypeDetector;
 use League\MimeTypeDetection\MimeTypeDetector;
 use Qcloud\Cos\Client;
@@ -86,164 +82,160 @@ class TencentCOSAdapter implements FilesystemAdapter
         $this->mimeTypeDetector = $mimeTypeDetector ?: new FinfoMimeTypeDetector();
         $this->options = $options;
     }
-
+    
     /**
-     * 判断文件是否存在
-     * @param string $path
-     * @return bool
+     * @throws FilesystemException
      * @throws UnableToCheckExistence
      */
     public function fileExists(string $path): bool
     {
-        try {
-            return $this->client->doesObjectExist($this->bucket, $this->prefixer->prefixPath($path), $this->options);
-        } catch (Throwable $exception) {
-            throw UnableToCheckExistence::forLocation($path, $exception);
-        }
+        // TODO: Implement fileExists() method.
     }
 
     /**
-     * 判断文件夹是否存在
-     * @param string $path
-     * @return bool
+     * @throws FilesystemException
+     * @throws UnableToCheckExistence
      */
     public function directoryExists(string $path): bool
     {
-        // TODO: Implement write() method.
+        // TODO: Implement directoryExists() method.
     }
 
+    /**
+     * @throws UnableToWriteFile
+     * @throws FilesystemException
+     */
     public function write(string $path, string $contents, Config $config): void
     {
         // TODO: Implement write() method.
     }
 
+    /**
+     * @param resource $contents
+     *
+     * @throws UnableToWriteFile
+     * @throws FilesystemException
+     */
     public function writeStream(string $path, $contents, Config $config): void
     {
         // TODO: Implement writeStream() method.
     }
 
+    /**
+     * @throws UnableToReadFile
+     * @throws FilesystemException
+     */
     public function read(string $path): string
     {
         // TODO: Implement read() method.
     }
 
+    /**
+     * @return resource
+     *
+     * @throws UnableToReadFile
+     * @throws FilesystemException
+     */
     public function readStream(string $path)
     {
         // TODO: Implement readStream() method.
     }
 
     /**
-     * 删除对象
-     * @param string $path
+     * @throws UnableToDeleteFile
+     * @throws FilesystemException
      */
     public function delete(string $path): void
     {
-        $prefixedPath = $this->prefixer->prefixPath($path);
-        try {
-            $this->client->deleteObject([
-                'Bucket' => $this->bucket,
-                'Key' => $prefixedPath,
-            ]);
-        } catch (ServiceResponseException $exception) {
-            throw UnableToDeleteFile::atLocation($path, '', $exception);
-        }
+        // TODO: Implement delete() method.
     }
 
     /**
-     * 删除目录
-     * @param string $path
+     * @throws UnableToDeleteDirectory
+     * @throws FilesystemException
      */
     public function deleteDirectory(string $path): void
     {
-        try {
-            $prefix = $this->prefixer->prefixDirectoryPath($path);
-            $this->client->deleteObject([
-                'Bucket' => $this->bucket,
-                'Key' => $prefix,
-            ]);
-        } catch (ServiceResponseException $exception) {
-            throw UnableToDeleteDirectory::atLocation($path, '', $exception);
-        }
+        // TODO: Implement deleteDirectory() method.
     }
 
+    /**
+     * @throws UnableToCreateDirectory
+     * @throws FilesystemException
+     */
     public function createDirectory(string $path, Config $config): void
     {
         // TODO: Implement createDirectory() method.
     }
 
+    /**
+     * @throws InvalidVisibilityProvided
+     * @throws FilesystemException
+     */
     public function setVisibility(string $path, string $visibility): void
     {
         // TODO: Implement setVisibility() method.
     }
 
+    /**
+     * @throws UnableToRetrieveMetadata
+     * @throws FilesystemException
+     */
     public function visibility(string $path): FileAttributes
     {
         // TODO: Implement visibility() method.
     }
 
     /**
-     * 获取内容类型
-     * @param string $path
-     * @return FileAttributes
+     * @throws UnableToRetrieveMetadata
+     * @throws FilesystemException
      */
     public function mimeType(string $path): FileAttributes
     {
-        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_MIME_TYPE);
-        if ($attributes->mimeType() === null) {
-            throw UnableToRetrieveMetadata::mimeType($path);
-        }
-        return $attributes;
+        // TODO: Implement mimeType() method.
     }
 
     /**
-     * 获取最后更改
-     * @param string $path
-     * @return FileAttributes
+     * @throws UnableToRetrieveMetadata
+     * @throws FilesystemException
      */
     public function lastModified(string $path): FileAttributes
     {
-        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_LAST_MODIFIED);
-        if ($attributes->lastModified() === null) {
-            throw UnableToRetrieveMetadata::lastModified($path);
-        }
-        return $attributes;
+        // TODO: Implement lastModified() method.
     }
 
     /**
-     * 获取文件大小
-     * @param string $path
-     * @return FileAttributes
+     * @throws UnableToRetrieveMetadata
+     * @throws FilesystemException
      */
     public function fileSize(string $path): FileAttributes
     {
-        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_FILE_SIZE);
-        if ($attributes->fileSize() === null) {
-            throw UnableToRetrieveMetadata::fileSize($path);
-        }
-        return $attributes;
+        // TODO: Implement fileSize() method.
     }
 
+    /**
+     * @return iterable<StorageAttributes>
+     *
+     * @throws FilesystemException
+     */
     public function listContents(string $path, bool $deep): iterable
     {
         // TODO: Implement listContents() method.
     }
 
     /**
-     * 移动对象到新位置
-     * @param string $source
-     * @param string $destination
-     * @param Config $config
+     * @throws UnableToMoveFile
+     * @throws FilesystemException
      */
     public function move(string $source, string $destination, Config $config): void
     {
-        try {
-            $this->copy($source, $destination, $config);
-            $this->delete($source);
-        } catch (FilesystemOperationFailed $exception) {
-            throw UnableToMoveFile::fromLocationTo($source, $destination, $exception);
-        }
+        // TODO: Implement move() method.
     }
 
+    /**
+     * @throws UnableToCopyFile
+     * @throws FilesystemException
+     */
     public function copy(string $source, string $destination, Config $config): void
     {
         // TODO: Implement copy() method.
