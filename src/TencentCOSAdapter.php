@@ -82,7 +82,7 @@ class TencentCOSAdapter implements FilesystemAdapter
         $this->mimeTypeDetector = $mimeTypeDetector ?: new FinfoMimeTypeDetector();
         $this->options = $options;
     }
-    
+
     /**
      * @throws FilesystemException
      * @throws UnableToCheckExistence
@@ -224,12 +224,19 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 移动对象到新的位置
+     *
      * @throws UnableToMoveFile
      * @throws FilesystemException
      */
     public function move(string $source, string $destination, Config $config): void
     {
-        // TODO: Implement move() method.
+        try {
+            $this->copy($source, $destination, $config);
+            $this->delete($source);
+        } catch (FilesystemOperationFailed $exception) {
+            throw UnableToMoveFile::fromLocationTo($source, $destination, $exception);
+        }
     }
 
     /**
