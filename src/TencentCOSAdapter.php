@@ -84,15 +84,23 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 对象是否存在
+     *
      * @throws FilesystemException
      * @throws UnableToCheckExistence
      */
     public function fileExists(string $path): bool
     {
-        // TODO: Implement fileExists() method.
+        try {
+            return $this->client->doesObjectExist($this->bucket, $this->prefixer->prefixPath($path), $this->options);
+        } catch (Throwable $exception) {
+            throw UnableToCheckExistence::forLocation($path, $exception);
+        }
     }
 
     /**
+     * 目录是否存在
+     *
      * @throws FilesystemException
      * @throws UnableToCheckExistence
      */
@@ -102,6 +110,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 写入内容到对象中
+     *
      * @throws UnableToWriteFile
      * @throws FilesystemException
      */
@@ -111,6 +121,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 写入流到对象
+     *
      * @param resource $contents
      *
      * @throws UnableToWriteFile
@@ -122,6 +134,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 读取对象内容
+     *
      * @throws UnableToReadFile
      * @throws FilesystemException
      */
@@ -131,6 +145,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 读取对象到流
+     *
      * @return resource
      *
      * @throws UnableToReadFile
@@ -142,6 +158,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 删除对象
+     *
      * @throws UnableToDeleteFile
      * @throws FilesystemException
      */
@@ -151,6 +169,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 删除目录
+     *
      * @throws UnableToDeleteDirectory
      * @throws FilesystemException
      */
@@ -160,6 +180,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 创建目录
+     *
      * @throws UnableToCreateDirectory
      * @throws FilesystemException
      */
@@ -169,6 +191,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 设置对象可见性
+     *
      * @throws InvalidVisibilityProvided
      * @throws FilesystemException
      */
@@ -178,6 +202,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 获取对象可见性
+     *
      * @throws UnableToRetrieveMetadata
      * @throws FilesystemException
      */
@@ -187,30 +213,48 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 获取对象类型
+     *
      * @throws UnableToRetrieveMetadata
      * @throws FilesystemException
      */
     public function mimeType(string $path): FileAttributes
     {
-        // TODO: Implement mimeType() method.
+        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_MIME_TYPE);
+        if ($attributes->mimeType() === null) {
+            throw UnableToRetrieveMetadata::mimeType($path);
+        }
+        return $attributes;
     }
 
     /**
+     * 获取对象最后更改时间
+     *
      * @throws UnableToRetrieveMetadata
      * @throws FilesystemException
      */
     public function lastModified(string $path): FileAttributes
     {
-        // TODO: Implement lastModified() method.
+        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_LAST_MODIFIED);
+        if ($attributes->lastModified() === null) {
+            throw UnableToRetrieveMetadata::lastModified($path);
+        }
+        return $attributes;
     }
 
     /**
+     * 获取对象大小
+     *
      * @throws UnableToRetrieveMetadata
      * @throws FilesystemException
      */
     public function fileSize(string $path): FileAttributes
     {
-        // TODO: Implement fileSize() method.
+        $attributes = $this->fetchFileMetadata($path, FileAttributes::ATTRIBUTE_FILE_SIZE);
+        if ($attributes->fileSize() === null) {
+            throw UnableToRetrieveMetadata::fileSize($path);
+        }
+        return $attributes;
     }
 
     /**
@@ -240,11 +284,13 @@ class TencentCOSAdapter implements FilesystemAdapter
     }
 
     /**
+     * 复制对象到新的位置
+     *
      * @throws UnableToCopyFile
      * @throws FilesystemException
      */
     public function copy(string $source, string $destination, Config $config): void
     {
-        // TODO: Implement copy() method.
+
     }
 }
