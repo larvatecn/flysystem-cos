@@ -141,7 +141,16 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function read(string $path): string
     {
-        // TODO: Implement read() method.
+        $prefixedPath = $this->prefixer->prefixPath($path);
+        try {
+            $response = $this->client->getObject([
+                'Bucket' => $this->bucket,
+                'Key' => $prefixedPath
+            ]);
+            return (string)$response['Body'];
+        } catch (Throwable $exception) {
+            throw UnableToReadFile::fromLocation($path, $exception->getMessage());
+        }
     }
 
     /**
@@ -154,7 +163,15 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function readStream(string $path)
     {
-        // TODO: Implement readStream() method.
+        try {
+            $data = $this->read($path);
+            $stream = fopen('php://temp', 'w+b');
+            fwrite($stream, $data);
+            rewind($stream);
+            return $stream;
+        } catch (Throwable $exception) {
+            throw UnableToReadFile::fromLocation($path, $exception->getMessage());
+        }
     }
 
     /**
