@@ -56,6 +56,8 @@ class TencentCOSAdapter implements FilesystemAdapter
      * @var string[]
      */
     private const EXTRA_METADATA_FIELDS = [
+        'StorageClass',
+        'ETag',
         'x-cos-storage-class', 'x-cos-storage-tier', 'x-cos-restore', 'x-cos-restore-status', 'x-cos-version-id'
     ];
 
@@ -134,8 +136,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     {
         try {
             $prefix = $this->prefixer->prefixDirectoryPath($path);
-            $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix, 'Delimiter' => '/'];
-            $response = $this->client->execute($this->client->getCommand('ListObjects', $options));
+            $response = $this->client->ListObjects(['Bucket' => $this->bucket, 'Prefix' => $prefix, 'Delimiter' => '/']);
             return isset($response['Contents']);
         } catch (Throwable $exception) {
             throw UnableToCheckDirectoryExistence::forLocation($path, $exception);
@@ -235,7 +236,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     {
         $prefixedPath = $this->prefixer->prefixPath($path);
         try {
-            $response = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $prefixedPath]);
+            $response = $this->client->GetObject(['Bucket' => $this->bucket, 'Key' => $prefixedPath]);
             return (string)$response['Body'];
         } catch (Throwable $exception) {
             throw UnableToReadFile::fromLocation($path, $exception->getMessage());
@@ -271,11 +272,8 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function delete(string $path): void
     {
-        $arguments = ['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)];
-        $command = $this->client->getCommand('DeleteObject', $arguments);
-
         try {
-            $this->client->execute($command);
+            $this->client->DeleteObject(['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)]);
         } catch (Throwable $exception) {
             throw UnableToDeleteFile::atLocation($path, '', $exception);
         }
@@ -291,7 +289,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     {
         try {
             $dirname = $this->prefixer->prefixDirectoryPath($path);
-            $this->client->deleteObject(['Bucket' => $this->bucket, 'Key' => $dirname,]);
+            $this->client->DeleteObject(['Bucket' => $this->bucket, 'Key' => $dirname,]);
         } catch (ServiceResponseException $exception) {
             throw UnableToDeleteDirectory::atLocation($path, '', $exception);
         }
@@ -323,7 +321,7 @@ class TencentCOSAdapter implements FilesystemAdapter
             'ACL' => $this->visibility->visibilityToAcl($visibility),
         ];
         try {
-            $this->client->PutBucketAcl($arguments);
+            $this->client->PutObjectAcl($arguments);
         } catch (Throwable $exception) {
             throw UnableToSetVisibility::atLocation($path, '', $exception);
         }
@@ -343,7 +341,6 @@ class TencentCOSAdapter implements FilesystemAdapter
         } catch (Throwable $exception) {
             throw UnableToRetrieveMetadata::visibility($path, '', $exception);
         }
-
         $visibility = $this->visibility->aclToVisibility((array)$result['Grants']);
         return new FileAttributes($path, null, $visibility);
     }
@@ -357,7 +354,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     private function fetchFileMetadata(string $path, string $type): ?FileAttributes
     {
         try {
-            $meta = $this->client->headObject(['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)]);
+            $meta = $this->client->HeadObject(['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)]);
         } catch (ServiceResponseException $exception) {
             throw UnableToRetrieveMetadata::create($path, $type, '', $exception);
         }
@@ -461,26 +458,38 @@ class TencentCOSAdapter implements FilesystemAdapter
         $prefix = trim($this->prefixer->prefixPath($path), '/');
         $prefix = empty($prefix) ? '' : $prefix . '/';
         $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix];
-
         if ($deep === false) {
             $options['Delimiter'] = '/';
         }
+        $response = $this->listObjects($options, $deep);
 
-        $listing = $this->retrievePaginatedListing($options);
+        // 处理目录
+        foreach ($response['CommonPrefixes'] ?? [] as $prefix) {
+            yield new DirectoryAttributes($prefix['Prefix']);
+        }
 
-        foreach ($listing as $item) {
-            yield $this->mapObjectMetadata($item);
+        foreach ($response['Contents'] ?? [] as $content) {
+            yield new FileAttributes($content['Key'], \intval($content['Size']), null, \strtotime($content['LastModified']));
         }
     }
 
-    private function retrievePaginatedListing(array $options): Generator
+    /**
+     * 列出对象
+     *
+     * @param array $options
+     * @return object
+     */
+    private function listObjects(array $options)
     {
-        $resultPaginator = $this->client->getPaginator('ListObjects', $options + $this->options);
-
-        foreach ($resultPaginator as $result) {
-            yield from ($result->get('CommonPrefixes') ?: []);
-            yield from ($result->get('Contents') ?: []);
+        $result = $this->client->ListObjects($options);
+        foreach (['CommonPrefixes', 'Contents'] as $key) {
+            $result[$key] = $result[$key] ?? [];
+            // 确保是二维数组
+            if (($index = \key($result[$key])) !== 0) {
+                $result[$key] = \is_null($index) ? [] : [$result[$key]];
+            }
         }
+        return $result;
     }
 
     /**
@@ -507,6 +516,27 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function copy(string $source, string $destination, Config $config): void
     {
+        try {
+            /** @var string $visibility */
+            $visibility = $this->visibility($source)->visibility();
+        } catch (Throwable $exception) {
+            throw UnableToCopyFile::fromLocationTo($source, $destination, $exception);
+        }
 
+        try {
+            $destination = $this->prefixer->prefixPath($destination);
+            $result = $this->client->HeadObject([
+                'Bucket' => $this->bucket,
+                'Key' => $this->prefixer->prefixPath($source),
+            ]);
+            $this->client->CopyObject([
+                'Bucket' => $this->bucket,
+                'Key' => $destination,
+                'CopySource' => $result['Location'],
+            ]);
+            $this->setVisibility($destination,$visibility);
+        } catch (Throwable $exception) {
+            throw UnableToCopyFile::fromLocationTo($source, $destination, $exception);
+        }
     }
 }
