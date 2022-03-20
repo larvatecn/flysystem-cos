@@ -39,7 +39,9 @@ class TencentCOSAdapter implements FilesystemAdapter
      * @var string[]
      */
     public const AVAILABLE_OPTIONS = [
-
+        'Cache-Control', 'Content-Disposition', 'Content-Encoding', 'Content-Type', 'Expires', 'x-cos-acl',
+        'x-cos-grant-read', 'x-cos-grant-read-acp', 'x-cos-grant-write-acp', 'x-cos-grant-full-control',
+        'x-cos-traffic-limit', 'x-cos-tagging', 'x-cos-storage-class',
     ];
 
     /**
@@ -47,7 +49,7 @@ class TencentCOSAdapter implements FilesystemAdapter
      * @var string[]
      */
     private const EXTRA_METADATA_FIELDS = [
-        'ETag'
+        'x-cos-storage-class', 'x-cos-storage-tier', 'x-cos-restore', 'x-cos-restore-status', 'x-cos-version-id'
     ];
 
     /**
@@ -127,7 +129,9 @@ class TencentCOSAdapter implements FilesystemAdapter
             $prefix = $this->prefixer->prefixDirectoryPath($path);
             $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix, 'Delimiter' => '/'];
             $command = $this->client->getCommand('ListObjects', $options);
+            $res = $this->client->execute($command);
 
+            exit;
             return $this->client->execute($command)->hasKey('Contents');
         } catch (Throwable $exception) {
             throw UnableToCheckDirectoryExistence::forLocation($path, $exception);
@@ -154,7 +158,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     {
         $object = $this->prefixer->prefixPath($path);
         $options = $this->createOptionsFromConfig($config);
-        $options['ACL'] = $this->determineAcl($config);
+        $options['x-cos-acl'] = $this->determineAcl($config);
         $shouldDetermineMimetype = $body !== '' && !array_key_exists('ContentType', $options);
         if ($shouldDetermineMimetype && $mimeType = $this->mimeTypeDetector->detectMimeType($object, $body)) {
             $options['ContentType'] = $mimeType;
@@ -174,7 +178,7 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     private function determineAcl(Config $config): string
     {
-        $visibility = (string) $config->get(Config::OPTION_VISIBILITY, Visibility::PRIVATE);
+        $visibility = (string)$config->get(Config::OPTION_VISIBILITY, Visibility::PRIVATE);
 
         return $this->visibility->visibilityToAcl($visibility);
     }
@@ -333,7 +337,7 @@ class TencentCOSAdapter implements FilesystemAdapter
         } catch (Throwable $exception) {
             throw UnableToRetrieveMetadata::visibility($path, '', $exception);
         }
-        $visibility = $this->visibility->aclToVisibility((array) $result->Grants);
+        $visibility = $this->visibility->aclToVisibility((array)$result->Grants);
         return new FileAttributes($path, null, $visibility);
     }
 
