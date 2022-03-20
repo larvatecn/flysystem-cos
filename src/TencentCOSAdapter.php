@@ -2,7 +2,6 @@
 
 namespace Larva\Flysystem\Tencent;
 
-use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\Config;
 use League\Flysystem\DirectoryAttributes;
 use League\Flysystem\FileAttributes;
