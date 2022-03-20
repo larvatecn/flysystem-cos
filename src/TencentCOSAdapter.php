@@ -2,6 +2,7 @@
 
 namespace Larva\Flysystem\Tencent;
 
+use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\Config;
 use League\Flysystem\DirectoryAttributes;
 use League\Flysystem\FileAttributes;
@@ -42,6 +43,13 @@ class TencentCOSAdapter implements FilesystemAdapter
         'Cache-Control', 'Content-Disposition', 'Content-Encoding', 'Content-Type', 'Expires', 'x-cos-acl',
         'x-cos-grant-read', 'x-cos-grant-read-acp', 'x-cos-grant-write-acp', 'x-cos-grant-full-control',
         'x-cos-traffic-limit', 'x-cos-tagging', 'x-cos-storage-class',
+    ];
+
+    /**
+     * @var string[]
+     */
+    public const MUP_AVAILABLE_OPTIONS = [
+        'Retry', 'PartSize'
     ];
 
     /**
@@ -128,11 +136,8 @@ class TencentCOSAdapter implements FilesystemAdapter
         try {
             $prefix = $this->prefixer->prefixDirectoryPath($path);
             $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix, 'Delimiter' => '/'];
-            $command = $this->client->getCommand('ListObjects', $options);
-            $res = $this->client->execute($command);
-
-            exit;
-            return $this->client->execute($command)->hasKey('Contents');
+            $response = $this->client->execute($this->client->getCommand('ListObjects', $options));
+            return isset($response['Contents']);
         } catch (Throwable $exception) {
             throw UnableToCheckDirectoryExistence::forLocation($path, $exception);
         }
@@ -156,16 +161,16 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     private function upload(string $path, $body, Config $config): void
     {
-        $object = $this->prefixer->prefixPath($path);
+        $key = $this->prefixer->prefixPath($path);
         $options = $this->createOptionsFromConfig($config);
-        $options['x-cos-acl'] = $this->determineAcl($config);
+        $options['x-cos-acl'] ?? $this->determineAcl($config);
         $shouldDetermineMimetype = $body !== '' && !array_key_exists('ContentType', $options);
-        if ($shouldDetermineMimetype && $mimeType = $this->mimeTypeDetector->detectMimeType($object, $body)) {
+        if ($shouldDetermineMimetype && $mimeType = $this->mimeTypeDetector->detectMimeType($key, $body)) {
             $options['ContentType'] = $mimeType;
         }
+
         try {
-            $this->client->upload($this->bucket, $object, $body, $options);
-            //$this->client->putObject($this->bucket, $object, $body, $options);
+            $this->client->upload($this->bucket, $key, $body, $options);
         } catch (Throwable $exception) {
             throw UnableToWriteFile::atLocation($path, '', $exception);
         }
@@ -198,6 +203,13 @@ class TencentCOSAdapter implements FilesystemAdapter
                 $options[$option] = $value;
             }
         }
+        foreach (static::MUP_AVAILABLE_OPTIONS as $option) {
+            $value = $config->get($option, '__NOT_SET__');
+
+            if ($value !== '__NOT_SET__') {
+                $options[$option] = $value;
+            }
+        }
         return $options + $this->options;
     }
 
@@ -211,7 +223,7 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function writeStream(string $path, $contents, Config $config): void
     {
-        $this->upload($path, \stream_get_contents($contents), $config);
+        $this->upload($path, $contents, $config);
     }
 
     /**
@@ -224,10 +236,7 @@ class TencentCOSAdapter implements FilesystemAdapter
     {
         $prefixedPath = $this->prefixer->prefixPath($path);
         try {
-            $response = $this->client->getObject([
-                'Bucket' => $this->bucket,
-                'Key' => $prefixedPath
-            ]);
+            $response = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $prefixedPath]);
             return (string)$response['Body'];
         } catch (Throwable $exception) {
             throw UnableToReadFile::fromLocation($path, $exception->getMessage());
@@ -246,8 +255,8 @@ class TencentCOSAdapter implements FilesystemAdapter
     {
         try {
             $data = $this->read($path);
-            $stream = fopen('php://temp', 'w+b');
-            fwrite($stream, $data);
+            $stream = fopen('php://temp', 'r+');
+            fwrite($stream, (string)$data);
             rewind($stream);
             return $stream;
         } catch (Throwable $exception) {
@@ -314,9 +323,8 @@ class TencentCOSAdapter implements FilesystemAdapter
             'Key' => $this->prefixer->prefixPath($path),
             'ACL' => $this->visibility->visibilityToAcl($visibility),
         ];
-        $command = $this->client->getCommand('PutObjectAcl', $arguments);
         try {
-            $this->client->execute($command);
+            $this->client->PutBucketAcl($arguments);
         } catch (Throwable $exception) {
             throw UnableToSetVisibility::atLocation($path, '', $exception);
         }
@@ -331,13 +339,13 @@ class TencentCOSAdapter implements FilesystemAdapter
     public function visibility(string $path): FileAttributes
     {
         $arguments = ['Bucket' => $this->bucket, 'Key' => $this->prefixer->prefixPath($path)];
-        $command = $this->client->getCommand('GetObjectAcl', $arguments);
         try {
-            $result = $this->client->execute($command);
+            $result = $this->client->GetObjectAcl($arguments);
         } catch (Throwable $exception) {
             throw UnableToRetrieveMetadata::visibility($path, '', $exception);
         }
-        $visibility = $this->visibility->aclToVisibility((array)$result->Grants);
+
+        $visibility = $this->visibility->aclToVisibility((array)$result['Grants']);
         return new FileAttributes($path, null, $visibility);
     }
 
