@@ -2,6 +2,7 @@
 
 namespace Larva\Flysystem\Tencent;
 
+use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\Config;
 use League\Flysystem\DirectoryAttributes;
 use League\Flysystem\FileAttributes;
@@ -287,9 +288,18 @@ class TencentCOSAdapter implements FilesystemAdapter
      */
     public function deleteDirectory(string $path): void
     {
+        $prefix = trim($this->prefixer->prefixPath($path), '/');
+        $prefix = empty($prefix) ? '' : $prefix . '/';
+        $options = ['Bucket' => $this->bucket, 'Prefix' => $prefix];
+        $objectListInfo = $this->listObjects($options, true);
+        if (empty($objectListInfo['Contents'])) {
+            return;
+        }
+        $objects = array_map(function ($item) {
+            return ['Key'=>$item['Key']];
+        }, $objectListInfo['Contents']);
         try {
-            $dirname = $this->prefixer->prefixDirectoryPath($path);
-            $this->client->DeleteObject(['Bucket' => $this->bucket, 'Key' => $dirname,]);
+            $this->client->DeleteObjects(['Bucket' => $this->bucket, 'Objects' => $objects]);
         } catch (ServiceResponseException $exception) {
             throw UnableToDeleteDirectory::atLocation($path, '', $exception);
         }
@@ -534,7 +544,7 @@ class TencentCOSAdapter implements FilesystemAdapter
                 'Key' => $destination,
                 'CopySource' => $result['Location'],
             ]);
-            $this->setVisibility($destination,$visibility);
+            $this->setVisibility($destination, $visibility);
         } catch (Throwable $exception) {
             throw UnableToCopyFile::fromLocationTo($source, $destination, $exception);
         }
