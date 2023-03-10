@@ -34,7 +34,6 @@ class PortableVisibilityConverter implements VisibilityConverter
     {
         if (isset($grants[0]['Grant'])) {
             foreach ($grants[0]['Grant'] as $grant) {
-
                 $granteeUri = $grant['Grantee']['URI'] ?? null;
                 $permission = $grant['Permission'] ?? null;
 

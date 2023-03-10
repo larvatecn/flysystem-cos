@@ -296,7 +296,7 @@ class TencentCOSAdapter implements FilesystemAdapter
             return;
         }
         $objects = array_map(function ($item) {
-            return ['Key'=>$item['Key']];
+            return ['Key' => $item['Key']];
         }, $objectListInfo['Contents']);
         try {
             $this->client->DeleteObjects(['Bucket' => $this->bucket, 'Objects' => $objects]);
