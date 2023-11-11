@@ -14,7 +14,7 @@ class PortableVisibilityConverter implements VisibilityConverter
     /**
      * @var string
      */
-    private $defaultForDirectories;
+    private string $defaultForDirectories;
 
     public function __construct(string $defaultForDirectories = Visibility::PUBLIC)
     {

@@ -2,7 +2,6 @@
 
 namespace Larva\Flysystem\Tencent;
 
-use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\Config;
 use League\Flysystem\DirectoryAttributes;
 use League\Flysystem\FileAttributes;
@@ -29,7 +28,6 @@ use League\MimeTypeDetection\MimeTypeDetector;
 use Qcloud\Cos\Client;
 use Qcloud\Cos\Exception\ServiceResponseException;
 use Throwable;
-use Generator;
 
 /**
  * 腾讯云COS适配器
